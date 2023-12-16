@@ -95,8 +95,24 @@ const addUser = function (user) {
  * @param {string} guest_id The id of the user.
  * @return {Promise<[{}]>} A promise to the reservations.
  */
-const getAllReservations = function (guest_id, limit = 10) {
-  return getAllProperties(null, 2);
+const getAllReservations = function (guest_id, limit) {
+  // Select all reservations, all properties, and the average rating
+  // join properties table using the reservations foreign key
+  return pool.query(
+    `SELECT reservations.*, properties.*, avg(rating) as average_rating
+    FROM reservations
+    JOIN properties ON reservations.property_id = properties.id
+    JOIN property_reviews ON properties.id = property_reviews.property_id
+    WHERE reservations.guest_id = $1
+    GROUP BY properties.id, reservations.id
+    ORDER BY properties.title
+    LIMIT $2;`, [guest_id, limit])
+    .then ((results) => {
+      return results.rows;
+    })
+    .catch((err) => {
+      console.error(err);
+    })
 };
 
 /// Properties
@@ -107,17 +123,60 @@ const getAllReservations = function (guest_id, limit = 10) {
  * @param {*} limit The number of results to return.
  * @return {Promise<[{}]>}  A promise to the properties.
  */
-  const getAllProperties = (options, limit = 10) => {
-    pool
-      .query(`SELECT * FROM properties LIMIT $1`, [limit])
-      .then((result) => {
-        console.log(result.rows);
-        return result.rows;
-      })
-      .catch((err) => {
-        console.log(err.message);
-      });
-  };
+
+  const getAllProperties = (options, limit) => {
+    const queryParams = [];
+    
+    // First half of query string... I.E: Before any modification by search function.
+    let queryString = `
+    SELECT properties.*, avg(property_reviews.rating) as average_rating
+    FROM properties
+    JOIN property_reviews ON properties.id = property_id`;
+
+    // after this is where we add the customizable search
+    if (options.city) {
+      queryParams.push(`%${options.city}%`);
+      queryString += ` WHERE city LIKE $${queryParams.length} `;
+      console.log(queryString, queryParams);
+    }
+    if (options.owner_id) {
+      queryParams.push(options.owner_id);
+      queryString += ` AND owner_id = $${queryParams.length} `;
+    }
+    if (options.minimum_price_per_night) {
+      queryParams.push(Number(options.minimum_price_per_night) * 100);
+      if (queryParams.length === 1) {
+        queryString += ` WHERE cost_per_night >= $${queryParams.length} `;
+      } else {
+        queryString += ` AND cost_per_night >= $${queryParams.length} `;
+      }
+    }
+    if (options.maximum_price_per_night) {
+      queryParams.push(Number(options.maximum_price_per_night) * 100);
+      queryString += ` AND cost_per_night <= $${queryParams.length} `;
+    }
+    queryString += ` GROUP BY properties.id `;
+
+    if (options.minimum_rating) {
+    queryParams.push(Number(options.minimum_rating));
+    queryString += ` HAVING avg(property_reviews.rating) >= $${queryParams.length} `;
+  }
+
+    queryParams.push(limit);
+    queryString += `
+    ORDER BY cost_per_night
+    LIMIT $${queryParams.length};
+    `;
+
+    return pool.query(queryString, queryParams)
+     .then((result) => {
+       return result.rows;
+     })
+     .catch((err) => {
+       console.log(err.message);
+     });
+} 
+
 
 /**
  * Add a property to the database
