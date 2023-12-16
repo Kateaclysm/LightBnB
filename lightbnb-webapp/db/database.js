@@ -137,7 +137,6 @@ const getAllReservations = function (guest_id, limit) {
     if (options.city) {
       queryParams.push(`%${options.city}%`);
       queryString += ` WHERE city LIKE $${queryParams.length} `;
-      console.log(queryString, queryParams);
     }
     if (options.owner_id) {
       queryParams.push(options.owner_id);
